@@ -46,14 +46,27 @@
 </style></head><body><div id="stage" class="stage"></div><div class="top">Elsewhere<span>.</span></div><div class="home"><small>YOUR TIME · DHAKA</small><strong id="homeTime"></strong></div><nav id="toolbar" class="toolbar"></nav><div class="controls"><button id="viewBtn" class="floating" title="Multi-view" aria-label="Multi-view">▦</button><button id="settingsBtn" class="floating" title="Settings" aria-label="Settings">⚙</button></div><section id="panel" class="panel"><h2>Atmosphere settings</h2><label for="scene">Visual world</label><select id="scene"><option value="auto">Automatic · local time</option><option value="forest">Forest</option><option value="mountain">Mountain</option><option value="ocean">Ocean</option><option value="city">City skyline</option><option value="desert">Desert</option><option value="lake">Lakeside</option><option value="aurora">Northern lights</option><option value="rain">Rainy streets</option></select><label for="font">Clock font</label><select id="font"><option value="modern">Modern</option><option value="classic">Classic serif</option><option value="mono">Monospace</option><option value="rounded">Rounded</option></select><label for="layout">Multi-view direction</label><select id="layout"><option value="horizontal">Side by side</option><option value="vertical">Stacked vertically</option></select><label for="locationSearch">Search location</label><input id="locationSearch" type="search" placeholder="Search cities or time zones…" autocomplete="off" aria-label="Search locations"><div id="locationResults" class="location-results" role="listbox"></div><label for="addCity">Quick location (up to five)</label><select id="addCity"></select><div class="row"><button id="addBtn">Add location</button><button id="closeBtn">Close</button></div><p>Photographic scenes use internet-hosted images. Motion and daylight are artistic interpretations, not live camera feeds.</p></section>
 <script>
 const places={Dhaka:'Asia/Dhaka',Tokyo:'Asia/Tokyo',London:'Europe/London','New York':'America/New_York',Paris:'Europe/Paris',Sydney:'Australia/Sydney',Dubai:'Asia/Dubai',Singapore:'Asia/Singapore',Toronto:'America/Toronto',Seoul:'Asia/Seoul',Berlin:'Europe/Berlin'};
-const photos={forest:'photo-1448375240586-882707db888b',mountain:'photo-1464822759023-fed622ff2c3b',ocean:'photo-1507525428034-b723cf961d3e',city:'photo-1519501025264-65ba15a82390',desert:'photo-1509316785289-025f5b846b35',lake:'photo-1470770841072-f978cf4d019e',aurora:'photo-1531366936337-7c912a4589a7',rain:'photo-1519608487953-e999c86e7455'};
+const photos={forest:['photo-1448375240586-882707db888b','photo-1441974231531-c6227db76b6e'],mountain:['photo-1464822759023-fed622ff2c3b','photo-1506905925346-21bda4d32df4'],ocean:['photo-1507525428034-b723cf961d3e','photo-1505118380757-91f5f5632de0'],city:['photo-1519501025264-65ba15a82390','photo-1480714378408-67cf0d13bc1b'],desert:['photo-1509316785289-025f5b846b35','photo-1473580044384-7ba9967e16a0'],lake:['photo-1470770841072-f978cf4d019e','photo-1439066615861-d1af74d74000'],aurora:['photo-1531366936337-7c912a4589a7','photo-1483347756197-71ef80e95f73'],rain:['photo-1519608487953-e999c86e7455','photo-1428592953211-077101b2021b']};
 const $=id=>document.getElementById(id);
 let active='Dhaka',selected=['Dhaka','Tokyo','London'],multi=false,scene='auto',font='modern',layout='horizontal';
 const format=(tz,options)=>new Intl.DateTimeFormat('en-US',{timeZone:tz,...options}).format(new Date());
 const hour=tz=>+format(tz,{hour:'2-digit',hourCycle:'h23'});
 function phase(h){return h<5?"It's late at night here":h<7?"It's dawn here":h<12?"It's morning here":h<17?"It's afternoon here":h<19?"It's golden hour here":"It's evening here"}
 function lightPhase(h){return h<5||h>=21?'night':h<7?'dawn':h<11?'morning':h<15?'midday':h<17?'afternoon':h<19?'golden':'dusk'}
-function sceneFor(city){if(scene!=='auto')return scene;let h=hour(places[city]);return h<5||h>=20?'aurora':city==='Tokyo'||city==='New York'||city==='London'?'city':h<8?'mountain':'forest'}
+const regionScenes={
+Asia:{night:'city',dawn:'mountain',day:'city',golden:'ocean',evening:'city'},
+Europe:{night:'rain',dawn:'lake',day:'city',golden:'lake',evening:'city'},
+America:{night:'city',dawn:'mountain',day:'forest',golden:'lake',evening:'city'},
+Australia:{night:'ocean',dawn:'ocean',day:'ocean',golden:'desert',evening:'ocean'},
+Pacific:{night:'ocean',dawn:'ocean',day:'ocean',golden:'ocean',evening:'ocean'},
+Africa:{night:'aurora',dawn:'desert',day:'desert',golden:'desert',evening:'desert'},
+Atlantic:{night:'ocean',dawn:'ocean',day:'ocean',golden:'ocean',evening:'ocean'},
+Indian:{night:'ocean',dawn:'ocean',day:'ocean',golden:'ocean',evening:'ocean'},
+Antarctica:{night:'aurora',dawn:'mountain',day:'mountain',golden:'mountain',evening:'aurora'}
+};
+const cityScenes={Dubai:{day:'desert',golden:'desert'},Singapore:{day:'forest'},Tokyo:{dawn:'mountain'},Seoul:{dawn:'mountain'}};
+function dayPeriod(h){return h<5||h>=21?'night':h<8?'dawn':h<17?'day':h<19?'golden':'evening'}
+function sceneFor(city){if(scene!=='auto')return scene;const tz=places[city],p=dayPeriod(hour(tz));return (cityScenes[city]&&cityScenes[city][p])||(regionScenes[tz.split('/')[0]]||regionScenes.Asia)[p]}
 const sceneColors={
 forest:'linear-gradient(160deg,#4d876b 0%,#244e47 42%,#071e20 100%)',
 mountain:'linear-gradient(155deg,#88b2c9 0%,#587b8c 38%,#1b3445 74%,#0c1e2c 100%)',
@@ -64,7 +77,7 @@ lake:'linear-gradient(180deg,#8caec2 0%,#658e9a 48%,#2b6b79 51%,#183d53 100%)',
 aurora:'linear-gradient(155deg,#04132d 0%,#226e73 40%,#172a58 70%,#060d23 100%)',
 rain:'linear-gradient(170deg,#34445c 0%,#506779 48%,#142638 100%)'
 };
-function photoFor(city){return `https://images.unsplash.com/${photos[sceneFor(city)]}?w=1920&q=85`}
+function photoFor(city){const list=photos[sceneFor(city)],seed=[...city].reduce((n,c)=>n+c.charCodeAt(0),0);return `https://images.unsplash.com/${list[seed%list.length]}?w=1920&q=85`}
 function vectorScene(city){
  const kind=sceneFor(city),h=hour(places[city]),night=h<6||h>=19;
  const palette={
