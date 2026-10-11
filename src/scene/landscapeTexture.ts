@@ -1,5 +1,7 @@
 import * as THREE from 'three'
 import { landscapePaths } from './landscapePaths'
+import { photoBackgrounds } from '../domain/photoBackgrounds'
+import { videoBackgrounds } from '../domain/videoBackgrounds'
 import type { SceneKind } from '../domain/scenes'
 
 const VIEW_W = 1200
@@ -52,3 +54,46 @@ export function getLandscapeLayers(kind: SceneKind): THREE.CanvasTexture[] {
 }
 
 export const LANDSCAPE_ASPECT = VIEW_W / VIEW_H
+
+const photoCache = new Map<SceneKind, THREE.Texture>()
+
+/** Single photo standing in for the vector silhouette, loaded once per scene kind and cached
+ * module-wide. Loads asynchronously — the texture fills in and the already-running R3F render
+ * loop just picks it up, no extra plumbing needed. */
+export function getPhotoTexture(kind: SceneKind): THREE.Texture {
+  let tex = photoCache.get(kind)
+  if (!tex) {
+    tex = new THREE.TextureLoader().load(photoBackgrounds[kind])
+    tex.colorSpace = THREE.SRGBColorSpace
+    photoCache.set(kind, tex)
+  }
+  return tex
+}
+
+const videoCache = new Map<string, THREE.VideoTexture>()
+
+/**
+ * Looping video standing in for the vector silhouette, one <video> element per (scene kind,
+ * day/night) pair, created and played lazily — only when video style is actually selected — and
+ * cached module-wide so switching away and back doesn't restart playback or re-fetch. VideoTexture
+ * auto-refreshes from the playing element every frame; the already-running R3F render loop just
+ * picks it up.
+ */
+export function getVideoTexture(kind: SceneKind, night: boolean): THREE.VideoTexture {
+  const key = `${kind}-${night ? 'night' : 'day'}`
+  let tex = videoCache.get(key)
+  if (!tex) {
+    const video = document.createElement('video')
+    video.crossOrigin = 'anonymous'
+    video.loop = true
+    video.muted = true
+    video.playsInline = true
+    video.autoplay = true
+    video.src = night ? videoBackgrounds[kind].night : videoBackgrounds[kind].day
+    video.play().catch(() => {})
+    tex = new THREE.VideoTexture(video)
+    tex.colorSpace = THREE.SRGBColorSpace
+    videoCache.set(key, tex)
+  }
+  return tex
+}

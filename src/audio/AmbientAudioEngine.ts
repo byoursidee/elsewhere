@@ -1,4 +1,5 @@
 import { SCENE_KINDS, type SceneKind } from '../domain/scenes'
+import { bandFor, SOUND_SCHEDULE, type SoundType } from './ambientSounds'
 
 interface FilterConfig {
   inputType: BiquadFilterType
@@ -11,10 +12,9 @@ interface FilterConfig {
 }
 
 /**
- * Rebalanced from the first pass: every kind now has real energy in ~400Hz-3kHz, not just
- * sub-300Hz rumble, which is what made it "technically playing but perceptually silent" on
- * small speakers. The low-frequency character (rumble/swell/wind bed) is kept via the input
- * filter; the output filter adds a mid-band layer that actually reads on tiny speakers.
+ * Just the ambient BED now — a quiet, mostly-unchanging texture underneath the real time-of-day
+ * signal (see ambientSounds.ts). A filter cutoff moving a few hundred Hz is not something a human
+ * ear reads as "morning" vs "midnight"; the discrete scheduled sounds are.
  */
 const FILTER_CONFIG: Record<SceneKind, FilterConfig> = {
   rain: { inputType: 'highpass', inputFreq: 900, outputType: 'lowpass', outputFreq: 7000 },
@@ -26,6 +26,10 @@ const FILTER_CONFIG: Record<SceneKind, FilterConfig> = {
   forest: { inputType: 'bandpass', inputFreq: 900, outputType: 'bandpass', outputFreq: 1200, q: 0.6 },
   aurora: { inputType: 'lowpass', inputFreq: 380, outputType: 'bandpass', outputFreq: 1500, q: 1.0, lfo: true },
 }
+
+/** Bed gain when a scene is active — quiet enough that the scheduled feature sounds (birds,
+ * crickets, traffic, waves...) read as the foreground, not just more wind. */
+const BED_GAIN = 0.4
 
 interface Bed {
   gain: GainNode
@@ -64,8 +68,9 @@ function makeNoiseBuffer(ctx: AudioContext): AudioBuffer {
 export class AmbientAudioEngine {
   private ctx: AudioContext | null = null
   private masterGain: GainNode | null = null
+  private noiseBuffer: AudioBuffer | null = null
   private beds: Partial<Record<SceneKind, Bed>> = {}
-  private blipTimer: ReturnType<typeof setTimeout> | null = null
+  private featureTimer: ReturnType<typeof setTimeout> | null = null
   private activeKind: SceneKind | null = null
   private hooks: EngineHooks | null = null
 
@@ -82,6 +87,7 @@ export class AmbientAudioEngine {
     this.masterGain = masterGain
 
     const noiseBuffer = makeNoiseBuffer(ctx)
+    this.noiseBuffer = noiseBuffer
 
     for (const kind of SCENE_KINDS) {
       const cfg = FILTER_CONFIG[kind]
@@ -120,7 +126,7 @@ export class AmbientAudioEngine {
       this.beds[kind] = { gain, outFilter: outputFilter, baseOutFreq: cfg.outputFreq }
     }
 
-    this.scheduleBlips()
+    this.scheduleFeatureSounds()
   }
 
   setMuted(muted: boolean): void {
@@ -146,11 +152,12 @@ export class AmbientAudioEngine {
       if (!bed) continue
       bed.gain.gain.cancelScheduledValues(now)
       bed.gain.gain.setValueAtTime(bed.gain.gain.value, now)
-      bed.gain.gain.linearRampToValueAtTime(k === kind ? 0.6 : 0, now + 1.8)
+      bed.gain.gain.linearRampToValueAtTime(k === kind ? BED_GAIN : 0, now + 1.8)
     }
   }
 
-  /** Day/night filter modulation — called on the same slow (~15s) cadence as solar recompute. */
+  /** Day/night filter modulation — a minor secondary texture cue. The real time-of-day signal is
+   * the scheduled feature sounds in scheduleFeatureSounds(), not this. */
   tick(): void {
     if (!this.ctx || !this.activeKind) return
     const bed = this.beds[this.activeKind]
@@ -180,50 +187,193 @@ export class AmbientAudioEngine {
     osc.stop(t + 0.3)
   }
 
-  private playBlip(type: 'bird' | 'cricket'): void {
+  // ---- Shared synthesis helpers ---------------------------------------------------------------
+
+  /** A single tone with a pitch ramp and a short attack/decay envelope — the basis for bird,
+   * owl, frog and chime hits. */
+  private playTone(opts: {
+    type: OscillatorType
+    freqFrom: number
+    freqTo?: number
+    rampTime?: number
+    attack: number
+    peak: number
+    decay: number
+    delay?: number
+  }): void {
     if (!this.ctx || !this.masterGain) return
     const ctx = this.ctx
-    const t = ctx.currentTime
+    const t = ctx.currentTime + (opts.delay ?? 0)
     const osc = ctx.createOscillator()
     const env = ctx.createGain()
     env.gain.value = 0
+    osc.type = opts.type
+    osc.frequency.setValueAtTime(opts.freqFrom, t)
+    if (opts.freqTo !== undefined) {
+      osc.frequency.exponentialRampToValueAtTime(opts.freqTo, t + (opts.rampTime ?? opts.attack + opts.decay))
+    }
+    env.gain.setValueAtTime(0, t)
+    env.gain.linearRampToValueAtTime(opts.peak, t + opts.attack)
+    env.gain.linearRampToValueAtTime(0, t + opts.attack + opts.decay)
     osc.connect(env)
     env.connect(this.masterGain)
-    if (type === 'bird') {
-      osc.type = 'sine'
-      osc.frequency.setValueAtTime(1800 + Math.random() * 800, t)
-      osc.frequency.exponentialRampToValueAtTime(1200, t + 0.12)
-      env.gain.linearRampToValueAtTime(0.05, t + 0.02)
-      env.gain.linearRampToValueAtTime(0, t + 0.18)
-    } else {
-      osc.type = 'square'
-      osc.frequency.setValueAtTime(4200 + Math.random() * 300, t)
-      env.gain.linearRampToValueAtTime(0.025, t + 0.01)
-      env.gain.linearRampToValueAtTime(0, t + 0.07)
-    }
     osc.start(t)
-    osc.stop(t + 0.3)
+    osc.stop(t + opts.attack + opts.decay + 0.05)
   }
 
-  private scheduleBlips(): void {
+  /** A burst of filtered noise with a swelling envelope — the basis for waves, wind, traffic and
+   * thunder. A fresh BufferSource each call (cheap) rather than reusing one long-lived node. */
+  private playNoiseBurst(opts: {
+    filterType: BiquadFilterType
+    freqFrom: number
+    freqTo?: number
+    rampTime?: number
+    q?: number
+    attack: number
+    peak: number
+    decay: number
+    delay?: number
+  }): void {
+    if (!this.ctx || !this.masterGain || !this.noiseBuffer) return
+    const ctx = this.ctx
+    const t = ctx.currentTime + (opts.delay ?? 0)
+    const src = ctx.createBufferSource()
+    src.buffer = this.noiseBuffer
+    src.loop = true
+
+    const filter = ctx.createBiquadFilter()
+    filter.type = opts.filterType
+    filter.frequency.setValueAtTime(opts.freqFrom, t)
+    if (opts.freqTo !== undefined) {
+      filter.frequency.linearRampToValueAtTime(opts.freqTo, t + (opts.rampTime ?? opts.attack + opts.decay))
+    }
+    if (opts.q) filter.Q.value = opts.q
+
+    const env = ctx.createGain()
+    env.gain.setValueAtTime(0, t)
+    env.gain.linearRampToValueAtTime(opts.peak, t + opts.attack)
+    env.gain.linearRampToValueAtTime(0, t + opts.attack + opts.decay)
+
+    src.connect(filter)
+    filter.connect(env)
+    env.connect(this.masterGain)
+    src.start(t)
+    src.stop(t + opts.attack + opts.decay + 0.05)
+  }
+
+  // ---- The time-of-day signal: recognizable, scene-appropriate sound events ------------------
+
+  private playSound(type: SoundType): void {
+    switch (type) {
+      case 'birdChorus': {
+        const count = 3 + Math.floor(Math.random() * 3)
+        for (let i = 0; i < count; i++) this.playBird(Math.random() * 0.3)
+        break
+      }
+      case 'birdSingle':
+        this.playBird(0)
+        break
+      case 'owl':
+        this.playTone({ type: 'sine', freqFrom: 380, freqTo: 280, attack: 0.08, peak: 0.08, decay: 0.5 })
+        this.playTone({ type: 'sine', freqFrom: 360, freqTo: 260, attack: 0.08, peak: 0.07, decay: 0.5, delay: 0.75 })
+        break
+      case 'cricket': {
+        const count = 3 + Math.floor(Math.random() * 4)
+        for (let i = 0; i < count; i++) {
+          this.playTone({
+            type: 'square',
+            freqFrom: 4100 + Math.random() * 400,
+            attack: 0.008,
+            peak: 0.022,
+            decay: 0.05,
+            delay: i * (0.1 + Math.random() * 0.05),
+          })
+        }
+        break
+      }
+      case 'seagull':
+        this.playTone({ type: 'sine', freqFrom: 1250, freqTo: 1750, rampTime: 0.22, attack: 0.05, peak: 0.055, decay: 0.3 })
+        this.playTone({
+          type: 'sine',
+          freqFrom: 1700,
+          freqTo: 1300,
+          rampTime: 0.2,
+          attack: 0.02,
+          peak: 0.045,
+          decay: 0.25,
+          delay: 0.26,
+        })
+        break
+      case 'waveCrash':
+        this.playNoiseBurst({ filterType: 'bandpass', freqFrom: 500, freqTo: 900, rampTime: 0.6, q: 0.6, attack: 0.15, peak: 0.16, decay: 1.1 })
+        break
+      case 'trafficSwell':
+        this.playNoiseBurst({
+          filterType: 'bandpass',
+          freqFrom: 280,
+          freqTo: 850,
+          rampTime: 0.9,
+          q: 0.8,
+          attack: 0.5,
+          peak: 0.1,
+          decay: 1.0,
+        })
+        break
+      case 'windGust':
+        this.playNoiseBurst({ filterType: 'lowpass', freqFrom: 300, freqTo: 550, rampTime: 1.5, attack: 1.0, peak: 0.1, decay: 2.2 })
+        break
+      case 'frog': {
+        const count = 2 + Math.floor(Math.random() * 2)
+        for (let i = 0; i < count; i++) {
+          this.playTone({ type: 'triangle', freqFrom: 220, attack: 0.01, peak: 0.05, decay: 0.08, delay: i * 0.14 })
+        }
+        break
+      }
+      case 'thunder':
+        this.playNoiseBurst({ filterType: 'lowpass', freqFrom: 140, attack: 0.3, peak: 0.14, decay: 2.3 })
+        break
+      case 'chime': {
+        const freq = [784, 880, 988, 1175][Math.floor(Math.random() * 4)]
+        this.playTone({ type: 'sine', freqFrom: freq, attack: 0.01, peak: 0.05, decay: 1.4 })
+        this.playTone({ type: 'sine', freqFrom: freq * 2.01, attack: 0.01, peak: 0.015, decay: 0.8 })
+        break
+      }
+      case 'shimmer':
+        this.playNoiseBurst({ filterType: 'highpass', freqFrom: 1800, attack: 0.5, peak: 0.035, decay: 1.6 })
+        break
+    }
+  }
+
+  private playBird(delay: number): void {
+    this.playTone({
+      type: 'sine',
+      freqFrom: 1800 + Math.random() * 800,
+      freqTo: 1200,
+      rampTime: 0.12,
+      attack: 0.02,
+      peak: 0.05,
+      decay: 0.16,
+      delay,
+    })
+  }
+
+  private scheduleFeatureSounds(): void {
     const tick = () => {
+      let nextDelay = 4000
       if (this.ctx && this.masterGain && this.masterGain.gain.value > 0.01 && this.activeKind) {
         const solar = this.hooks?.getActiveSolar()
         if (solar) {
-          const dawnBirds =
-            solar.elevation > -4 &&
-            solar.elevation < 10 &&
-            solar.hourAngle < 0 &&
-            (['forest', 'mountain', 'lake'] as SceneKind[]).includes(this.activeKind)
-          const nightCrickets =
-            solar.elevation < 0 && (['forest', 'lake'] as SceneKind[]).includes(this.activeKind)
-          if (dawnBirds) this.playBlip('bird')
-          else if (nightCrickets) this.playBlip('cricket')
+          const band = bandFor(solar.elevation, solar.hourAngle)
+          const spec = SOUND_SCHEDULE[this.activeKind][band]
+          this.playSound(spec.primary)
+          if (spec.secondary && Math.random() < (spec.secondaryChance ?? 0)) this.playSound(spec.secondary)
+          const [min, max] = spec.intervalMs
+          nextDelay = min + Math.random() * (max - min)
         }
       }
-      this.blipTimer = setTimeout(tick, 4000 + Math.random() * 5000)
+      this.featureTimer = setTimeout(tick, nextDelay)
     }
-    this.blipTimer = setTimeout(tick, 4000)
+    this.featureTimer = setTimeout(tick, 2000)
   }
 
   /** Test/debug only: taps the master output into a caller-provided AnalyserNode. */
@@ -232,8 +382,8 @@ export class AmbientAudioEngine {
   }
 
   dispose(): void {
-    if (this.blipTimer) clearTimeout(this.blipTimer)
-    this.blipTimer = null
+    if (this.featureTimer) clearTimeout(this.featureTimer)
+    this.featureTimer = null
     void this.ctx?.close()
     this.ctx = null
   }

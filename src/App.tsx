@@ -4,6 +4,7 @@ import { Toolbar } from './components/Toolbar'
 import { Controls } from './components/Controls'
 import { SettingsPanel } from './components/SettingsPanel'
 import { LocationSearchModal } from './components/LocationSearchModal'
+import { Attribution } from './components/Attribution'
 import { startClockTicker, stopClockTicker } from './runtime/clockTicker'
 import { startWeatherTicker, stopWeatherTicker } from './runtime/weatherTicker'
 import { useStore } from './store/useStore'
@@ -47,6 +48,7 @@ export default function App() {
       <Controls onToggleSettings={() => setPanelOpen((v) => !v)} />
       <SettingsPanel open={panelOpen} onClose={() => setPanelOpen(false)} />
       {searchOpen && <LocationSearchModal onClose={() => setSearchOpen(false)} />}
+      <Attribution />
     </div>
   )
 }

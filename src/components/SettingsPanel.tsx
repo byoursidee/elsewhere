@@ -1,12 +1,28 @@
 import { useStore } from '../store/useStore'
 import { SCENE_KINDS, type SceneKind } from '../domain/scenes'
-import type { ClockFont, Layout } from '../store/useStore'
+import type { ClockFont, Layout, LandscapeStyle } from '../store/useStore'
 import { toggleAmbientAudio } from '../audio/useAmbientAudio'
-import { AutoIcon, SceneIcon, SpeakerOffIcon, SpeakerOnIcon, ViewColumnsIcon, ViewRowsIcon } from './icons'
+import {
+  AutoIcon,
+  PhotoIcon,
+  SceneIcon,
+  SpeakerOffIcon,
+  SpeakerOnIcon,
+  VectorIcon,
+  VideoIcon,
+  ViewColumnsIcon,
+  ViewRowsIcon,
+} from './icons'
 
 const LAYOUT_OPTIONS: Array<{ value: Layout; label: string; icon: typeof ViewColumnsIcon }> = [
   { value: 'horizontal', label: 'Side by side', icon: ViewColumnsIcon },
   { value: 'vertical', label: 'Stacked', icon: ViewRowsIcon },
+]
+
+const LANDSCAPE_STYLE_OPTIONS: Array<{ value: LandscapeStyle; label: string; icon: typeof VectorIcon }> = [
+  { value: 'vector', label: 'Vector', icon: VectorIcon },
+  { value: 'photo', label: 'Photo', icon: PhotoIcon },
+  { value: 'video', label: 'Video', icon: VideoIcon },
 ]
 
 const SCENE_LABELS: Record<SceneKind, string> = {
@@ -40,6 +56,8 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
   const muted = useStore((s) => s.muted)
   const layout = useStore((s) => s.layout)
   const setLayout = useStore((s) => s.setLayout)
+  const landscapeStyle = useStore((s) => s.landscapeStyle)
+  const setLandscapeStyle = useStore((s) => s.setLandscapeStyle)
 
   return (
     <section id="panel" className={`panel ${open ? 'open' : ''}`}>
@@ -113,6 +131,25 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
       </div>
 
       <div className="setting-group">
+        <span className="panel-section-label">Landscape style</span>
+        <div className="icon-picker icon-picker-landscape">
+          {LANDSCAPE_STYLE_OPTIONS.map(({ value, label, icon: Icon }) => (
+            <button
+              key={value}
+              type="button"
+              className={landscapeStyle === value ? 'active' : ''}
+              onClick={() => setLandscapeStyle(value)}
+              aria-pressed={landscapeStyle === value}
+              aria-label={label}
+              title={label}
+            >
+              <Icon />
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="setting-group">
         <span className="panel-section-label">Font</span>
         <div className="icon-picker icon-picker-font">
           {FONT_OPTIONS.map((f) => (
@@ -132,9 +169,9 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
       </div>
 
       <p>
-        Backgrounds are a fully procedural, math-driven sky, not photos, so day and night always
-        match the actual time. Sun position is approximated for locations outside a curated set.
-        Ambient sound is synthesized in-browser, not a recording.
+        The sky is always a fully procedural, math-driven gradient, so day and night keep matching
+        the actual time regardless of landscape style. Sun position is approximated for locations
+        outside a curated set. Ambient sound is synthesized in-browser, not a recording.
       </p>
     </section>
   )

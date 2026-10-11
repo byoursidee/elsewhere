@@ -89,6 +89,10 @@ button{cursor:pointer;-webkit-tap-highlight-color:transparent}
 
 .toolbar{position:fixed;z-index:11;bottom:22px;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:8px;max-width:calc(100vw - 130px);overflow:auto;padding:7px;border:1px solid var(--border);background:#071d2b9c;backdrop-filter:blur(20px);border-radius:28px;scrollbar-width:none}
 
+.attribution{position:fixed;z-index:10;left:20px;bottom:20px;font-size:11px;font-weight:500;letter-spacing:.02em;color:var(--ink-dim,#aebccb);opacity:.8;text-shadow:0 1px 8px rgba(0,0,0,.6)}
+.attribution a{color:inherit;text-decoration:underline;text-decoration-color:currentColor;text-underline-offset:2px}
+.attribution a:hover{opacity:.85}
+
 .toolbar-chip{position:relative;display:flex;align-items:center;flex-shrink:0;border:1px solid var(--border);border-radius:22px;padding:4px;box-shadow:0 4px 16px rgba(0,0,0,.25);background:linear-gradient(135deg,color-mix(in srgb,var(--band-a) 30%,var(--glass)),color-mix(in srgb,var(--band-b) 16%,var(--glass)));transition:transform .32s var(--ease),box-shadow .32s var(--ease),background .25s,border-color .25s}
 .toolbar-chip:hover,.toolbar-chip:focus-within{background:linear-gradient(135deg,color-mix(in srgb,var(--band-a) 45%,var(--glass-strong)),color-mix(in srgb,var(--band-b) 28%,var(--glass-strong)));border-color:var(--border-strong);transform:translateY(-2px);box-shadow:0 10px 26px rgba(0,0,0,.35)}
 .toolbar-chip.active{background:linear-gradient(135deg,var(--band-a),var(--band-b));border-color:transparent;box-shadow:0 8px 22px rgba(255,150,80,.35)}

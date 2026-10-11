@@ -65,6 +65,34 @@ export function ViewRowsIcon({ className }: { className?: string }) {
   )
 }
 
+export function VectorIcon({ className }: { className?: string }) {
+  return (
+    <Svg className={className}>
+      <path d="M3 17l5-7 4 5 3-4 6 6" />
+      <circle cx="7" cy="7" r="1.4" fill="currentColor" stroke="none" />
+    </Svg>
+  )
+}
+
+export function PhotoIcon({ className }: { className?: string }) {
+  return (
+    <Svg className={className}>
+      <rect x="3" y="4" width="18" height="16" rx="2.5" />
+      <circle cx="9" cy="10" r="1.6" />
+      <path d="M3 17l5-5 4 3 4-4 4 4" />
+    </Svg>
+  )
+}
+
+export function VideoIcon({ className }: { className?: string }) {
+  return (
+    <Svg className={className}>
+      <rect x="3" y="5" width="14" height="14" rx="2.5" />
+      <path d="M17 10l4-2.5v9L17 14" />
+    </Svg>
+  )
+}
+
 export function SpeakerOnIcon({ className }: { className?: string }) {
   return (
     <Svg className={className}>

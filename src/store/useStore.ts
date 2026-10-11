@@ -5,6 +5,7 @@ import { places as curatedPlaces } from '../domain/places'
 
 export type ClockFont = 'modern' | 'classic' | 'mono' | 'rounded'
 export type Layout = 'horizontal' | 'vertical'
+export type LandscapeStyle = 'vector' | 'photo' | 'video'
 
 export interface CityRuntime {
   elevation: number
@@ -21,6 +22,7 @@ interface AppState {
   /** How multi-view arranges its windows: side by side, or stacked. Takes effect once multi-view is on. */
   layout: Layout
   sceneOverride: SceneOverride
+  landscapeStyle: LandscapeStyle
   font: ClockFont
   muted: boolean
   /** Bumped every 1s by the clock ticker; clock-text components subscribe to just this. */
@@ -35,6 +37,7 @@ interface AppState {
   toggleMulti: () => void
   setLayout: (layout: Layout) => void
   setSceneOverride: (scene: SceneOverride) => void
+  setLandscapeStyle: (style: LandscapeStyle) => void
   setFont: (font: ClockFont) => void
   toggleMuted: () => void
   addPlace: (name: string, zone: string) => void
@@ -52,6 +55,7 @@ export const useStore = create<AppState>((set) => ({
   multi: false,
   layout: 'horizontal',
   sceneOverride: 'auto',
+  landscapeStyle: 'vector',
   font: 'modern',
   muted: true,
   clockTick: 0,
@@ -73,6 +77,7 @@ export const useStore = create<AppState>((set) => ({
 
   setLayout: (layout) => set({ layout }),
   setSceneOverride: (sceneOverride) => set({ sceneOverride }),
+  setLandscapeStyle: (landscapeStyle) => set({ landscapeStyle }),
   setFont: (font) => set({ font }),
   toggleMuted: () => set((s) => ({ muted: !s.muted })),
 
